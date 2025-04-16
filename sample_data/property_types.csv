@@ -1,0 +1,6 @@
+type_code,description
+D,Detached
+S,Semi-Detached
+T,Terraced
+F,Flat/Maisonette
+O,Other

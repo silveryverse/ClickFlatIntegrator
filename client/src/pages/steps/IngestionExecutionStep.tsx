@@ -205,14 +205,17 @@ const IngestionExecutionStep: React.FC<IngestionExecutionStepProps> = ({ onBack,
           <div className="space-y-4">
             <div>
               <Label htmlFor="outputFileName">Output File Name</Label>
-              <Input 
-                type="text" 
-                id="outputFileName" 
-                value={outputConfig.outputFileName}
-                onChange={(e) => setOutputConfig({ ...outputConfig, outputFileName: e.target.value })}
-                placeholder="output_data.csv"
-                disabled={isRunning || isCompleted}
-              />
+              <div className="space-y-1">
+                <Input 
+                  type="text" 
+                  id="outputFileName" 
+                  value={outputConfig.outputFileName}
+                  onChange={(e) => setOutputConfig({ ...outputConfig, outputFileName: e.target.value })}
+                  placeholder="sample_data/output_data.csv"
+                  disabled={isRunning || isCompleted}
+                />
+                <p className="text-xs text-gray-500">Tip: Save to the sample_data folder for easy access</p>
+              </div>
             </div>
             
             <div>

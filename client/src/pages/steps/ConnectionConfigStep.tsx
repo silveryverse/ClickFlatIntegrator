@@ -162,10 +162,11 @@ const ConnectionConfigStep: React.FC<ConnectionConfigStepProps> = ({ onBack, onN
                   className="rounded-l-none border-l-0"
                   onClick={() => {
                     toast({
-                      title: "Feature not available",
-                      description: "File browser is not available in this environment. Please enter the path manually.",
+                      title: "Sample data available",
+                      description: "You can use sample data files in the 'sample_data' folder (e.g., sample_data/property_prices.csv)",
                       variant: "default",
                     });
+                    setFileConfig({ ...fileConfig, fileName: 'sample_data/property_prices.csv' });
                   }}
                 >
                   Browse
