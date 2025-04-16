@@ -21,46 +21,86 @@ export interface IStorage {
   updateIngestionProgress(state: IngestionState): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private ingestionState: IngestionState | null = null;
-  currentId: number;
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 
-  constructor() {
-    this.users = new Map();
-    this.currentId = 1;
-  }
-
+export class DatabaseStorage implements IStorage {
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentId++;
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
     return user;
   }
 
   // Ingestion state methods
   async saveIngestionState(state: IngestionState): Promise<IngestionState> {
-    this.ingestionState = state;
-    return state;
+    // First, clean up old ingestion states (we only keep one active)
+    await db.delete(ingestionStates);
+    
+    // Then insert the new state
+    const [savedState] = await db
+      .insert(ingestionStates)
+      .values({
+        progress: state.progress || 0,
+        recordsProcessed: state.recordsProcessed || 0,
+        status: state.status || "",
+        isCompleted: state.isCompleted || false,
+        source: state.source,
+        target: state.target,
+        tables: state.tables,
+        columns: state.columns,
+        joinConfig: state.joinConfig,
+        batchSize: state.batchSize || 10000
+      })
+      .returning();
+    
+    return savedState;
   }
 
   async getIngestionState(): Promise<IngestionState | null> {
-    return this.ingestionState;
+    const [state] = await db
+      .select()
+      .from(ingestionStates)
+      .orderBy(ingestionStates.id, "desc")
+      .limit(1);
+    
+    return state || null;
   }
 
   async updateIngestionProgress(state: IngestionState): Promise<void> {
-    this.ingestionState = state;
+    if (!state.id) {
+      const currentState = await this.getIngestionState();
+      if (currentState) {
+        state.id = currentState.id;
+      } else {
+        // If no current state, save a new one
+        await this.saveIngestionState(state);
+        return;
+      }
+    }
+    
+    await db
+      .update(ingestionStates)
+      .set({
+        progress: state.progress,
+        recordsProcessed: state.recordsProcessed,
+        status: state.status,
+        isCompleted: state.isCompleted,
+        updatedAt: new Date()
+      })
+      .where(eq(ingestionStates.id, state.id));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

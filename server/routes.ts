@@ -22,8 +22,7 @@ const fileConnectionSchema = z.object({
   hasHeader: z.boolean().default(true),
 });
 
-// Track the current ingestion state
-let currentIngestion: IngestionState | null = null;
+// We are using the database storage to track the ingestion state
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const clickhouseService = new ClickHouseService();
@@ -155,8 +154,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Store the new ingestion state
-      currentIngestion = {
+      // Create a new ingestion state
+      const newIngestion = {
         progress: 0,
         recordsProcessed: 0,
         status: 'Initializing...',
@@ -169,8 +168,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         batchSize
       };
 
-      // Store the ingestion state
-      await storage.saveIngestionState(currentIngestion);
+      // Store the ingestion state in the database
+      const savedState = await storage.saveIngestionState(newIngestion);
 
       // Start the ingestion in the background
       setTimeout(async () => {
@@ -178,9 +177,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let result;
           
           // Update status
-          currentIngestion!.status = 'Fetching data...';
-          currentIngestion!.progress = 10;
-          await storage.updateIngestionProgress(currentIngestion!);
+          const currentState = await storage.getIngestionState();
+          if (currentState) {
+            currentState.status = 'Fetching data...';
+            currentState.progress = 10;
+            await storage.updateIngestionProgress(currentState);
+          }
           
           if (source.type === 'clickhouse' && target.type === 'flatfile') {
             // ClickHouse to Flat File
@@ -191,12 +193,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               columns,
               joinConfig,
               batchSize,
-              (progress) => {
-                if (currentIngestion) {
-                  currentIngestion.progress = progress.progress;
-                  currentIngestion.recordsProcessed = progress.recordsProcessed;
-                  currentIngestion.status = progress.status;
-                  storage.updateIngestionProgress(currentIngestion);
+              async (progress) => {
+                const state = await storage.getIngestionState();
+                if (state) {
+                  state.progress = progress.progress;
+                  state.recordsProcessed = progress.recordsProcessed;
+                  state.status = progress.status;
+                  await storage.updateIngestionProgress(state);
                 }
               }
             );
@@ -207,12 +210,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               target.config,
               columns,
               batchSize,
-              (progress) => {
-                if (currentIngestion) {
-                  currentIngestion.progress = progress.progress;
-                  currentIngestion.recordsProcessed = progress.recordsProcessed;
-                  currentIngestion.status = progress.status;
-                  storage.updateIngestionProgress(currentIngestion);
+              async (progress) => {
+                const state = await storage.getIngestionState();
+                if (state) {
+                  state.progress = progress.progress;
+                  state.recordsProcessed = progress.recordsProcessed;
+                  state.status = progress.status;
+                  await storage.updateIngestionProgress(state);
                 }
               }
             );
@@ -221,20 +225,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           // Mark as completed
-          if (currentIngestion) {
-            currentIngestion.isCompleted = true;
-            currentIngestion.progress = 100;
-            currentIngestion.status = 'Completed';
-            currentIngestion.recordsProcessed = result.recordsProcessed;
-            await storage.updateIngestionProgress(currentIngestion);
+          const finalState = await storage.getIngestionState();
+          if (finalState) {
+            finalState.isCompleted = true;
+            finalState.progress = 100;
+            finalState.status = 'Completed';
+            finalState.recordsProcessed = result.recordsProcessed;
+            await storage.updateIngestionProgress(finalState);
           }
         } catch (error) {
           // Handle errors in the background process
           console.error('Ingestion error:', error);
-          if (currentIngestion) {
-            currentIngestion.isCompleted = true;
-            currentIngestion.status = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            await storage.updateIngestionProgress(currentIngestion);
+          const errorState = await storage.getIngestionState();
+          if (errorState) {
+            errorState.isCompleted = true;
+            errorState.status = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            await storage.updateIngestionProgress(errorState);
           }
         }
       }, 0);
@@ -278,10 +284,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Cancel ingestion
   app.post('/api/ingestion/cancel', async (req, res) => {
     try {
-      if (currentIngestion) {
-        currentIngestion.isCompleted = true;
-        currentIngestion.status = 'Cancelled by user';
-        await storage.updateIngestionProgress(currentIngestion);
+      const currentState = await storage.getIngestionState();
+      if (currentState) {
+        currentState.isCompleted = true;
+        currentState.status = 'Cancelled by user';
+        await storage.updateIngestionProgress(currentState);
       }
       
       return res.json({ 
